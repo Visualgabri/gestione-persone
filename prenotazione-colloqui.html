@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Prenotazione Orari</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body { 
+            background-color: #f4f6f9; 
+            padding: 15px; 
+            padding-bottom: 90px; /* Spazio per il bottone fisso */
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        }
+
+        h2 { font-weight: 800; color: #2c3e50; text-align: center; margin-bottom: 20px; }
+
+        /* Stile della riga Orario */
+        .time-slot-card {
+            background: white;
+            border-radius: 12px;
+            padding: 10px;
+            margin-bottom: 12px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+            display: flex;
+            align-items: center;
+            border: 1px solid #e9ecef;
+            transition: transform 0.1s;
+        }
+
+        /* L'etichetta dell'orario (sinistra) */
+        .time-badge {
+            background-color: #e9ecef;
+            color: #495057;
+            font-weight: bold;
+            font-size: 1.2rem;
+            padding: 10px 15px;
+            border-radius: 8px;
+            min-width: 85px;
+            text-align: center;
+            margin-right: 15px;
+            transition: background-color 0.3s, color 0.3s;
+        }
+
+        /* Input del genitore (destra) */
+        .parent-input {
+            border: none;
+            font-size: 1rem;
+            width: 100%;
+            outline: none;
+            background: transparent;
+            color: #333;
+        }
+
+        .parent-input::placeholder { color: #adb5bd; font-style: italic; }
+
+        /* Quando lo slot è occupato (c'è scritto qualcosa) */
+        .slot-booked .time-badge {
+            background-color: #198754; /* Verde Bootstrap */
+            color: white;
+        }
+        
+        .slot-booked {
+            border-color: #198754;
+            background-color: #f8fffb;
+        }
+
+        /* Barra fissa in basso */
+        .sticky-footer {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            width: 100%;
+            background: white;
+            padding: 15px 20px;
+            box-shadow: 0 -4px 20px rgba(0,0,0,0.1);
+            z-index: 1000;
+            display: flex;
+            justify-content: center;
+        }
+
+        .btn-save {
+            width: 100%;
+            max-width: 400px;
+            border-radius: 50px;
+            font-weight: bold;
+            font-size: 1.1rem;
+            padding: 12px;
+        }
+
+        /* Toast notifica */
+        #toast-container {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            z-index: 1050;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container" style="max-width: 600px;">
+    <h2>📅 Orari Colloqui</h2>
+    
+    <!-- Contenitore dove verranno generati gli orari -->
+    <div id="slots-container">
+        <!-- Javascript riempirà questo spazio -->
+        <div class="text-center text-muted mt-5">
+            <div class="spinner-border text-primary" role="status"></div>
+            <p class="mt-2">Caricamento orari...</p>
+        </div>
+    </div>
+</div>
+
+<!-- Footer Fisso -->
+<div class="sticky-footer">
+    <button class="btn btn-primary btn-save shadow" onclick="saveData()" id="btnSave">
+        💾 SALVA PRENOTAZIONI
+    </button>
+</div>
+
+<!-- Notifiche -->
+<div id="toast-container"></div>
+
+<script>
+    // --- CONFIGURAZIONE ---
+    const PANTRY_ID = "9fe511a6-8b04-4e0a-891a-19c7d95ce2df";
+    
+    // NOTA: Ho cambiato il nome del bucket in "prenotazioni_orari"
+    // così non mischia i dati con la tabella dei soci precedente.
+    const BUCKET_NAME = "prenotazioni_orari"; 
+    const API_URL = `https://getpantry.cloud/apiv1/pantry/${PANTRY_ID}/basket/${BUCKET_NAME}`;
+
+    // Lista degli orari come da tua immagine
+    const timeSlots = [
+        "16:30", "16:35", "16:40", "16:45", "16:50", "16:55",
+        "17:00", "17:05", "17:10", "17:15", "17:20", "17:25",
+        "17:30", "17:35", "17:40", "17:45", "17:50"
+    ];
+
+    document.addEventListener('DOMContentLoaded', async () => {
+        await loadData();
+    });
+
+    // --- CARICAMENTO ---
+    async function loadData() {
+        try {
+            const response = await fetch(API_URL);
+            let savedData = {};
+            
+            if (response.ok) {
+                const json = await response.json();
+                savedData = json.data || {};
+            }
+
+            renderSlots(savedData);
+            showToast("Dati sincronizzati", "success");
+        } catch (error) {
+            console.error(error);
+            showToast("Impossibile caricare i dati. Modalità offline.", "danger");
+            renderSlots({}); // Renderizza vuoto
+        }
+    }
+
+    // --- RENDERIZZA HTML ---
+    function renderSlots(data) {
+        const container = document.getElementById('slots-container');
+        container.innerHTML = '';
+
+        timeSlots.forEach(time => {
+            const val = data[time] || ""; // Recupera il nome salvato o stringa vuota
+            const isBooked = val.trim() !== "";
+            
+            const div = document.createElement('div');
+            // Aggiunge la classe 'slot-booked' se c'è già un nome
+            div.className = `time-slot-card ${isBooked ? 'slot-booked' : ''}`;
+            
+            div.innerHTML = `
+                <div class="time-badge">${time}</div>
+                <input type="text" class="parent-input" 
+                    placeholder="Genitore di..." 
+                    value="${val}" 
+                    data-time="${time}"
+                    oninput="updateStatus(this)">
+            `;
+            container.appendChild(div);
+        });
+    }
+
+    // --- AGGIORNAMENTO VISIVO ---
+    function updateStatus(input) {
+        const card = input.closest('.time-slot-card');
+        if (input.value.trim() !== "") {
+            card.classList.add('slot-booked');
+        } else {
+            card.classList.remove('slot-booked');
+        }
+    }
+
+    // --- SALVATAGGIO ---
+    async function saveData() {
+        const btn = document.getElementById('btnSave');
+        const originalText = btn.innerHTML;
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Salvataggio...';
+
+        // Raccogli i dati in un oggetto { "16:30": "Mario", "16:35": "Luca" }
+        const inputs = document.querySelectorAll('.parent-input');
+        const dataToSave = {};
+        
+        inputs.forEach(input => {
+            dataToSave[input.getAttribute('data-time')] = input.value;
+        });
+
+        try {
+            await fetch(API_URL, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ data: dataToSave })
+            });
+            showToast("Prenotazioni salvate!", "success");
+        } catch (e) {
+            showToast("Errore durante il salvataggio", "danger");
+        } finally {
+            btn.disabled = false;
+            btn.innerHTML = originalText;
+        }
+    }
+
+    // --- NOTIFICHE ---
+    function showToast(msg, type) {
+        const container = document.getElementById('toast-container');
+        const color = type === 'success' ? '#198754' : '#dc3545';
+        
+        const el = document.createElement('div');
+        el.style.cssText = `background:${color}; color:white; padding:12px 20px; border-radius:8px; margin-bottom:10px; box-shadow:0 4px 12px rgba(0,0,0,0.15); font-weight:500; animation: fadeIn 0.3s;`;
+        el.innerText = msg;
+        
+        container.appendChild(el);
+        setTimeout(() => {
+            el.style.opacity = '0';
+            setTimeout(() => el.remove(), 300);
+        }, 2500);
+    }
+</script>
+
+<style>
+@keyframes fadeIn { from { opacity:0; transform:translateY(-10px); } to { opacity:1; transform:translateY(0); } }
+</style>
+
+</body>
+</html>
