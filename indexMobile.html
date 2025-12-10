@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Tabella Soci - Gestione Mobile</title>
+    <!-- Stile Bootstrap 5 -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        :root {
+            --primary-color: #0d6efd;
+            --bg-color: #f0f2f5;
+        }
+        body { 
+            padding: 10px; 
+            background-color: var(--bg-color); 
+            padding-bottom: 80px; /* Spazio per il bottone fisso */
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+        }
+        
+        h2 { font-weight: 700; color: #333; margin-top: 10px; }
+
+        /* Stile base input */
+        .form-control, .form-select {
+            font-size: 16px; /* Evita zoom su iOS */
+            padding: 10px;
+            border-radius: 8px;
+        }
+        
+        /* Area di testo che si espande */
+        textarea.auto-expand {
+            min-height: 60px;
+            resize: none; /* Gestito via JS */
+            overflow-y: hidden;
+            line-height: 1.5;
+        }
+
+        /* --- STILE DESKTOP (TABELLA CLASSICA) --- */
+        .table-container { 
+            background: white; 
+            padding: 20px; 
+            border-radius: 12px; 
+            box-shadow: 0 4px 12px rgba(0,0,0,0.05); 
+        }
+
+        /* --- STILE MOBILE (CARDS) --- */
+        @media (max-width: 768px) {
+            .table-container { padding: 0; background: transparent; box-shadow: none; }
+            
+            /* Nascondi intestazione tabella classica */
+            thead { display: none; }
+            
+            /* Trasforma righe in Cards */
+            tr {
+                display: block;
+                background: white;
+                margin-bottom: 15px;
+                border-radius: 12px;
+                box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+                padding: 15px;
+                border: 1px solid #e0e0e0;
+            }
+
+            /* Celle diventano blocchi */
+            td {
+                display: block;
+                border: none !important;
+                padding: 5px 0 !important;
+                text-align: left;
+                width: 100%;
+            }
+
+            /* Etichette per i campi su mobile */
+            td::before {
+                content: attr(data-label);
+                display: block;
+                font-size: 0.85rem;
+                color: #6c757d;
+                font-weight: 600;
+                margin-bottom: 4px;
+                text-transform: uppercase;
+            }
+            
+            /* Separatore visivo tra PT e il resto */
+            td[data-label="PT (Nome)"] input {
+                font-weight: bold;
+                background-color: #f8f9fa;
+                border: none;
+                padding-left: 0;
+                font-size: 1.1rem;
+                color: #212529;
+            }
+
+            /* Totale footer nascosto nella tabella, mostrato altrove */
+            tfoot { display: none; }
+        }
+
+        /* Bottone Salva Fluttuante */
+        .sticky-save-bar {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            width: 100%;
+            background: white;
+            padding: 15px;
+            box-shadow: 0 -2px 10px rgba(0,0,0,0.1);
+            z-index: 100;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        /* Stato visivo Pagato */
+        .status-pagato-SI {
+            border-left: 5px solid #198754 !important;
+        }
+
+        #status-toast {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            z-index: 1050;
+            max-width: 300px;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container table-container">
+    <h2 class="text-center mb-3">Gestione Soci</h2>
+    
+    <div class="alert alert-light border text-center text-muted" role="alert" style="font-size: 0.9rem;">
+        ☁️ Modifiche salvate in cloud.
+    </div>
+
+    <!-- Tabella -->
+    <div class="table-responsive-md">
+        <table class="table align-middle">
+            <thead class="table-dark">
+                <tr>
+                    <th>PT (Nome)</th>
+                    <th style="width: 100px;">N. Soci</th>
+                    <th>Nominativi Soci</th>
+                    <th style="width: 110px;">Pagato?</th>
+                </tr>
+            </thead>
+            <tbody id="tableBody">
+                <!-- Javascript riempirà questo spazio -->
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- BARRA FISSA IN BASSO -->
+<div class="sticky-save-bar">
+    <div>
+        <small class="text-muted d-block">TOTALE SOCI</small>
+        <span id="totalSociDisplay" class="h4 fw-bold text-primary">0</span>
+    </div>
+    <button class="btn btn-primary btn-lg px-4 shadow" onclick="saveData()" id="btnSave">
+        💾 SALVA
+    </button>
+</div>
+
+<!-- Notifiche -->
+<div id="status-toast"></div>
+
+<script>
+    // --- CONFIGURAZIONE ---
+    const PANTRY_ID = "9fe511a6-8b04-4e0a-891a-19c7d95ce2df"; 
+    const BUCKET_NAME = "gestione_persone";
+    const API_URL = `https://getpantry.cloud/apiv1/pantry/${PANTRY_ID}/basket/${BUCKET_NAME}`;
+
+    const initialData = [
+        { pt: "ARSENAKI IOANNA", n: "", nomi: "", pagato: "" },
+        { pt: "BACOCCOLI LUCA", n: "", nomi: "", pagato: "" },
+        { pt: "BELMONTE GABRIELE", n: "", nomi: "", pagato: "" },
+        { pt: "CASCIANELLI RICCARDO", n: "", nomi: "", pagato: "" },
+        { pt: "CENERINI LORENZO", n: "", nomi: "", pagato: "" },
+        { pt: "COLAPRETE FEDERICA", n: "", nomi: "", pagato: "" },
+        { pt: "DE ALEXANDRIS RITA", n: "", nomi: "", pagato: "" },
+        { pt: "FACCHINI FRANCESCO", n: "", nomi: "", pagato: "" },
+        { pt: "FELICI RACHELE", n: "", nomi: "", pagato: "" },
+        { pt: "GULIA ALESSANDRO", n: "", nomi: "", pagato: "" },
+        { pt: "LANIA EMANUELE", n: "", nomi: "", pagato: "" },
+        { pt: "LLESHI ARMANDO", n: "", nomi: "", pagato: "" },
+        { pt: "MANFRONI ENRICO", n: "", nomi: "", pagato: "" },
+        { pt: "MANNI JACOPO", n: "6", nomi: "L.Bertorotta, F.Boldrini, L.Lucaroni, R.Matteucci, M.Rocchi, S.Rocchi", pagato: "" },
+        { pt: "MELONE TEODORO", n: "", nomi: "", pagato: "" },
+        { pt: "MORELLI MASSIMO", n: "", nomi: "", pagato: "" },
+        { pt: "OLIVARO MARCELLO", n: "", nomi: "", pagato: "" },
+        { pt: "OURI MARC", n: "", nomi: "", pagato: "" },
+        { pt: "PARISI LEONARDO", n: "", nomi: "", pagato: "" },
+        { pt: "PATOIA MICHELE", n: "", nomi: "", pagato: "" },
+        { pt: "RESTI FRANCESCO", n: "", nomi: "", pagato: "" },
+        { pt: "SIGISMONDI ALESSANDRO", n: "6", nomi: "G.Rosati, R.Zorzan, M.Manci, L.Calzuola, S.Bruno, A.Goretti", pagato: "" },
+        { pt: "SIRNA DAVIDE", n: "", nomi: "", pagato: "" },
+        { pt: "TORTOIOLI VALENTINA", n: "", nomi: "", pagato: "" },
+        { pt: "TRINCIA EMANUEL", n: "", nomi: "", pagato: "" }
+    ];
+
+    document.addEventListener('DOMContentLoaded', async () => {
+        await loadData();
+    });
+
+    async function loadData() {
+        showToast("Caricamento dati...", "info");
+        try {
+            const response = await fetch(API_URL);
+            if (!response.ok) {
+                renderTable(initialData);
+            } else {
+                const json = await response.json();
+                renderTable(json.data || initialData);
+            }
+            showToast("Dati aggiornati", "success");
+        } catch (error) {
+            console.error(error);
+            showToast("Offline: Dati locali", "warning");
+            renderTable(initialData);
+        }
+    }
+
+    function renderTable(data) {
+        const tbody = document.getElementById('tableBody');
+        tbody.innerHTML = '';
+        let total = 0;
+
+        data.forEach((row) => {
+            const num = parseInt(row.n) || 0;
+            total += num;
+
+            const tr = document.createElement('tr');
+            // Aggiungo classe se pagato
+            if(row.pagato === 'SI') tr.classList.add('status-pagato-SI');
+
+            tr.innerHTML = `
+                <td data-label="PT (Nome)">
+                    <input type="text" class="form-control" value="${row.pt}" data-field="pt" readonly style="background:transparent; border:none; padding-left:0; font-weight:bold;">
+                </td>
+                <td data-label="N. Soci">
+                    <input type="number" inputmode="numeric" class="form-control" value="${row.n}" data-field="n" oninput="calcTotal()" placeholder="0">
+                </td>
+                <td data-label="Nominativi Soci">
+                    <textarea class="form-control auto-expand" data-field="nomi" placeholder="Inserisci nomi..." oninput="resizeTextarea(this)">${row.nomi}</textarea>
+                </td>
+                <td data-label="Pagato?">
+                    <select class="form-select" data-field="pagato" onchange="updateRowStyle(this)">
+                        <option value="" ${row.pagato === '' ? 'selected' : ''}>No 🔴</option>
+                        <option value="SI" ${row.pagato === 'SI' ? 'selected' : ''}>SI 🟢</option>
+                    </select>
+                </td>
+            `;
+            tbody.appendChild(tr);
+        });
+        
+        document.getElementById('totalSociDisplay').innerText = total;
+
+        // Ridimensiona tutte le textarea al caricamento
+        document.querySelectorAll('textarea.auto-expand').forEach(resizeTextarea);
+    }
+
+    // Funzione per auto-ridimensionare la textarea mentre scrivi
+    function resizeTextarea(el) {
+        el.style.height = 'auto';
+        el.style.height = (el.scrollHeight) + 'px';
+    }
+
+    function updateRowStyle(select) {
+        const tr = select.closest('tr');
+        if(select.value === 'SI') {
+            tr.classList.add('status-pagato-SI');
+        } else {
+            tr.classList.remove('status-pagato-SI');
+        }
+    }
+
+    function calcTotal() {
+        let total = 0;
+        document.querySelectorAll('input[data-field="n"]').forEach(input => {
+            total += parseInt(input.value) || 0;
+        });
+        document.getElementById('totalSociDisplay').innerText = total;
+    }
+
+    async function saveData() {
+        const btn = document.getElementById('btnSave');
+        const originalText = btn.innerHTML;
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Saving...';
+
+        const rows = document.getElementById('tableBody').querySelectorAll('tr');
+        const newData = [];
+        
+        rows.forEach(tr => {
+            newData.push({
+                pt: tr.querySelector('[data-field="pt"]').value,
+                n: tr.querySelector('[data-field="n"]').value,
+                nomi: tr.querySelector('[data-field="nomi"]').value,
+                pagato: tr.querySelector('[data-field="pagato"]').value
+            });
+        });
+
+        try {
+            await fetch(API_URL, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ data: newData })
+            });
+            showToast("Salvato con successo!", "success");
+        } catch (e) {
+            showToast("Errore salvataggio!", "danger");
+        } finally {
+            btn.disabled = false;
+            btn.innerHTML = originalText;
+        }
+    }
+
+    function showToast(msg, type) {
+        const container = document.getElementById('status-toast');
+        const colorClass = type === 'success' ? 'bg-success' : (type === 'danger' ? 'bg-danger' : 'bg-primary');
+        
+        const toast = document.createElement('div');
+        toast.className = `toast align-items-center text-white ${colorClass} border-0 show`;
+        toast.innerHTML = `
+            <div class="d-flex">
+                <div class="toast-body">${msg}</div>
+                <button type="button" class="btn-close btn-close-white me-2 m-auto" onclick="this.parentElement.parentElement.remove()"></button>
+            </div>`;
+        
+        container.appendChild(toast);
+        setTimeout(() => toast.remove(), 3000);
+    }
+</script>
+
+</body>
+</html>
