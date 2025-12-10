@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tabella Soci - Gestione</title>
+    <!-- Stile Bootstrap per renderlo carino -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body { padding: 20px; background-color: #f8f9fa; }
+        .table-container { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+        input.form-control { border: 1px solid #ced4da; }
+        input.form-control:focus { border-color: #86b7fe; box-shadow: 0 0 0 0.25rem rgba(13, 110, 253, 0.25); }
+        .footer-total { font-weight: bold; background-color: #e9ecef; }
+        #status { position: fixed; bottom: 20px; right: 20px; z-index: 1000; }
+    </style>
+</head>
+<body>
+
+<div class="container table-container">
+    <h2 class="mb-4 text-center">Gestione Soci</h2>
+    
+    <div class="alert alert-info" role="alert">
+        <small>Le modifiche sono salvate in cloud. Chiunque abbia il link può modificare.</small>
+    </div>
+
+    <div class="table-responsive">
+        <table class="table table-bordered table-hover align-middle">
+            <thead class="table-dark">
+                <tr>
+                    <th>PT (Nome)</th>
+                    <th style="width: 80px;">N. Soci</th>
+                    <th>Nominativi Soci</th>
+                    <th style="width: 100px;">Pagato?</th>
+                </tr>
+            </thead>
+            <tbody id="tableBody">
+                <!-- Le righe verranno inserite qui da Javascript -->
+            </tbody>
+            <tfoot>
+                <tr class="footer-total">
+                    <td>TOTALE</td>
+                    <td id="totalSoci">0</td>
+                    <td></td>
+                    <td></td>
+                </tr>
+            </tfoot>
+        </table>
+    </div>
+
+    <div class="d-grid gap-2 col-6 mx-auto mt-4">
+        <button class="btn btn-primary btn-lg" onclick="saveData()" id="btnSave">💾 SALVA MODIFICHE</button>
+    </div>
+</div>
+
+<!-- Notifica Toast -->
+<div id="status"></div>
+
+<script>
+    // --- CONFIGURAZIONE ---
+    // INCOLLA QUI IL TUO PANTRY ID TRA LE VIRGOLETTE
+    const PANTRY_ID = "9fe511a6-8b04-4e0a-891a-19c7d95ce2df"; 
+    const BUCKET_NAME = "gestione_persone";
+    
+    // URL API
+    const API_URL = `https://getpantry.cloud/apiv1/pantry/${PANTRY_ID}/basket/${BUCKET_NAME}`;
+
+    // Dati iniziali (usati solo la prima volta se il database è vuoto)
+    const initialData = [
+        { pt: "ARSENAKI IOANNA", n: "", nomi: "", pagato: "" },
+        { pt: "BACOCCOLI LUCA", n: "", nomi: "", pagato: "" },
+        { pt: "BELMONTE GABRIELE", n: "", nomi: "", pagato: "" },
+        { pt: "CASCIANELLI RICCARDO", n: "", nomi: "", pagato: "" },
+        { pt: "CENERINI LORENZO", n: "", nomi: "", pagato: "" },
+        { pt: "COLAPRETE FEDERICA", n: "", nomi: "", pagato: "" },
+        { pt: "DE ALEXANDRIS RITA", n: "", nomi: "", pagato: "" },
+        { pt: "FACCHINI FRANCESCO", n: "", nomi: "", pagato: "" },
+        { pt: "FELICI RACHELE", n: "", nomi: "", pagato: "" },
+        { pt: "GULIA ALESSANDRO", n: "", nomi: "", pagato: "" },
+        { pt: "LANIA EMANUELE", n: "", nomi: "", pagato: "" },
+        { pt: "LLESHI ARMANDO", n: "", nomi: "", pagato: "" },
+        { pt: "MANFRONI ENRICO", n: "", nomi: "", pagato: "" },
+        { pt: "MANNI JACOPO", n: "6", nomi: "L.Bertorotta, F.Boldrini, L.Lucaroni, R.Matteucci, M.Rocchi, S.Rocchi", pagato: "" },
+        { pt: "MELONE TEODORO", n: "", nomi: "", pagato: "" },
+        { pt: "MORELLI MASSIMO", n: "", nomi: "", pagato: "" },
+        { pt: "OLIVARO MARCELLO", n: "", nomi: "", pagato: "" },
+        { pt: "OURI MARC", n: "", nomi: "", pagato: "" },
+        { pt: "PARISI LEONARDO", n: "", nomi: "", pagato: "" },
+        { pt: "PATOIA MICHELE", n: "", nomi: "", pagato: "" },
+        { pt: "RESTI FRANCESCO", n: "", nomi: "", pagato: "" },
+        { pt: "SIGISMONDI ALESSANDRO", n: "6", nomi: "G.Rosati, R.Zorzan, M.Manci, L.Calzuola, S.Bruno, A.Goretti", pagato: "" },
+        { pt: "SIRNA DAVIDE", n: "", nomi: "", pagato: "" },
+        { pt: "TORTOIOLI VALENTINA", n: "", nomi: "", pagato: "" },
+        { pt: "TRINCIA EMANUEL", n: "", nomi: "", pagato: "" }
+    ];
+
+    // Funzione all'avvio
+    document.addEventListener('DOMContentLoaded', async () => {
+        if(PANTRY_ID === "INSERISCI_QUI_IL_TUO_ID_PANTRY") {
+            alert("ATTENZIONE: Devi modificare il file index.html e inserire il tuo PANTRY ID alla riga 59!");
+            renderTable(initialData); // Mostra dati locali per demo
+            return;
+        }
+        await loadData();
+    });
+
+    // Carica dati dal cloud
+    async function loadData() {
+        showStatus("Caricamento dati...", "info");
+        try {
+            const response = await fetch(API_URL);
+            if (!response.ok) {
+                // Se il bucket non esiste ancora (prima volta), usiamo i dati iniziali e li salviamo
+                console.log("Database vuoto o non trovato, inizializzo...");
+                renderTable(initialData);
+                // Non salviamo automaticamente per evitare sovrascritture accidentali al primo load
+            } else {
+                const json = await response.json();
+                if(json.data) {
+                    renderTable(json.data);
+                } else {
+                    renderTable(initialData);
+                }
+            }
+            showStatus("Dati caricati!", "success");
+        } catch (error) {
+            console.error(error);
+            showStatus("Errore caricamento. Uso dati locali.", "danger");
+            renderTable(initialData);
+        }
+    }
+
+    // Disegna la tabella HTML
+    function renderTable(data) {
+        const tbody = document.getElementById('tableBody');
+        tbody.innerHTML = '';
+        let total = 0;
+
+        data.forEach((row, index) => {
+            // Calcolo totale
+            const num = parseInt(row.n) || 0;
+            total += num;
+
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+                <td><input type="text" class="form-control" value="${row.pt}" data-field="pt"></td>
+                <td><input type="number" class="form-control text-center" value="${row.n}" data-field="n" onchange="calcTotal()"></td>
+                <td><textarea class="form-control" rows="1" data-field="nomi" style="resize:both">${row.nomi}</textarea></td>
+                <td>
+                    <select class="form-select" data-field="pagato">
+                        <option value="" ${row.pagato === '' ? 'selected' : ''}>No</option>
+                        <option value="SI" ${row.pagato === 'SI' ? 'selected' : ''} style="color:green; font-weight:bold;">SI</option>
+                    </select>
+                </td>
+            `;
+            tbody.appendChild(tr);
+        });
+        document.getElementById('totalSoci').innerText = total;
+    }
+
+    // Calcola il totale dinamicamente quando cambi i numeri
+    function calcTotal() {
+        let total = 0;
+        document.querySelectorAll('input[data-field="n"]').forEach(input => {
+            total += parseInt(input.value) || 0;
+        });
+        document.getElementById('totalSoci').innerText = total;
+    }
+
+    // Salva i dati nel cloud
+    async function saveData() {
+        const btn = document.getElementById('btnSave');
+        btn.disabled = true;
+        btn.innerText = "Salvataggio in corso...";
+
+        // Raccogli i dati dalla tabella
+        const rows = document.getElementById('tableBody').querySelectorAll('tr');
+        const newData = [];
+        
+        rows.forEach(tr => {
+            newData.push({
+                pt: tr.querySelector('[data-field="pt"]').value,
+                n: tr.querySelector('[data-field="n"]').value,
+                nomi: tr.querySelector('[data-field="nomi"]').value,
+                pagato: tr.querySelector('[data-field="pagato"]').value
+            });
+        });
+
+        // Invia a Pantry Cloud
+        try {
+            const response = await fetch(API_URL, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ data: newData })
+            });
+
+            if(response.ok) {
+                showStatus("Salvato con successo!", "success");
+            } else {
+                throw new Error("Errore salvataggio");
+            }
+        } catch (e) {
+            showStatus("Errore durante il salvataggio: " + e, "danger");
+        } finally {
+            btn.disabled = false;
+            btn.innerText = "💾 SALVA MODIFICHE";
+        }
+    }
+
+    // Utility per mostrare messaggi
+    function showStatus(msg, type) {
+        const el = document.getElementById('status');
+        let color = type === 'success' ? '#198754' : (type === 'danger' ? '#dc3545' : '#0dcaf0');
+        el.innerHTML = `<div style="background:${color}; color:white; padding:10px 20px; border-radius:5px; margin-top:10px;">${msg}</div>`;
+        setTimeout(() => el.innerHTML = '', 3000);
+    }
+</script>
+
+</body>
+</html>
