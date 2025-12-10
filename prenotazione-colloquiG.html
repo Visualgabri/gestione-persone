@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Prenotazione Colloqui</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body { 
+            background-color: #f0f2f5; 
+            padding: 15px; 
+            padding-bottom: 100px;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        }
+
+        h2 { font-weight: 800; color: #1a1a1a; text-align: center; margin-bottom: 5px; }
+        .subtitle { text-align: center; color: #666; font-size: 0.9rem; margin-bottom: 20px; }
+
+        /* Card Orario */
+        .time-slot-card {
+            background: white;
+            border-radius: 16px;
+            padding: 8px;
+            margin-bottom: 12px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+            display: flex;
+            align-items: center;
+            border: 1px solid white;
+            transition: all 0.2s;
+        }
+
+        /* Badge Orario */
+        .time-badge {
+            background-color: #f1f3f5;
+            color: #495057;
+            font-weight: 700;
+            font-size: 1.1rem;
+            padding: 12px 0;
+            width: 80px;
+            text-align: center;
+            border-radius: 12px;
+            margin-right: 12px;
+            flex-shrink: 0;
+        }
+
+        /* Input Genitore */
+        .parent-input {
+            border: none;
+            font-size: 1.05rem;
+            width: 100%;
+            padding: 10px 5px;
+            outline: none;
+            background: transparent;
+            color: #333;
+            font-weight: 500;
+        }
+        .parent-input::placeholder { color: #adb5bd; font-weight: 400; }
+
+        /* Stati */
+        .slot-booked {
+            border-color: #a3cfbb;
+            background-color: #f2fbf6;
+        }
+        .slot-booked .time-badge {
+            background-color: #198754;
+            color: white;
+            box-shadow: 0 2px 5px rgba(25, 135, 84, 0.3);
+        }
+
+        /* Footer Fisso */
+        .sticky-footer {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            width: 100%;
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(5px);
+            padding: 15px 20px;
+            box-shadow: 0 -5px 20px rgba(0,0,0,0.05);
+            z-index: 1000;
+            display: flex;
+            justify-content: center;
+            border-top: 1px solid #eee;
+        }
+
+        .btn-save {
+            width: 100%;
+            max-width: 500px;
+            border-radius: 50px;
+            font-weight: 700;
+            font-size: 1.1rem;
+            padding: 14px;
+            letter-spacing: 0.5px;
+            background: #0d6efd;
+            border: none;
+        }
+        
+        .btn-save:active { transform: scale(0.98); }
+
+        /* Notifiche Toast */
+        #toast-container { position: fixed; top: 20px; right: 20px; z-index: 1050; }
+        
+        /* Loading overlay */
+        #loading-overlay {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(255,255,255,0.8); z-index: 999;
+            display: flex; justify-content: center; align-items: center;
+            flex-direction: column;
+        }
+    </style>
+</head>
+<body>
+
+<div id="loading-overlay">
+    <div class="spinner-border text-primary" role="status"></div>
+    <div class="mt-2 text-muted fw-bold">Sincronizzazione...</div>
+</div>
+
+<div class="container" style="max-width: 600px;">
+    <h2>Orari Colloqui</h2>
+    <div class="subtitle">Scrivi il nome per prenotare</div>
+    
+    <div id="slots-container">
+        <!-- Javascript genererà gli slot qui -->
+    </div>
+</div>
+
+<div class="sticky-footer">
+    <button class="btn btn-primary btn-save shadow" onclick="saveData()" id="btnSave">
+        SALVA PRENOTAZIONI
+    </button>
+</div>
+
+<div id="toast-container"></div>
+
+<script>
+    // --- CONFIGURAZIONE ---
+    
+    // !!! INCOLLA QUI L'URL CHE HAI OTTENUTO DA GOOGLE APPS SCRIPT !!!
+    const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyc09e_AjWhIW7VNLrcrYLvcQ2Nr2VcKQ4EdTc2_mUpLRGYpWRpefC3-h65VzX2PKBEaw/exec";
+
+    // Definiamo gli orari previsti (devono coincidere con colonna A del foglio)
+    const timeSlots = [
+        "16:30", "16:35", "16:40", "16:45", "16:50", "16:55",
+        "17:00", "17:05", "17:10", "17:15", "17:20", "17:25",
+        "17:30", "17:35", "17:40", "17:45", "17:50"
+    ];
+
+    document.addEventListener('DOMContentLoaded', async () => {
+        if(SCRIPT_URL.includes("INCOLLA_QUI")) {
+            alert("⚠️ Devi inserire l'URL dello script Google nel codice HTML!");
+            document.getElementById('loading-overlay').style.display = 'none';
+            return;
+        }
+        await loadData();
+    });
+
+    // --- CARICAMENTO ---
+    async function loadData() {
+        try {
+            const response = await fetch(SCRIPT_URL);
+            const json = await response.json();
+            const savedData = json.data || {};
+            
+            renderSlots(savedData);
+            document.getElementById('loading-overlay').style.display = 'none';
+        } catch (error) {
+            console.error(error);
+            showToast("Errore caricamento dati", "danger");
+            document.getElementById('loading-overlay').style.display = 'none';
+            // Renderizza vuoto in caso di errore per permettere la visione
+            renderSlots({});
+        }
+    }
+
+    // --- RENDERING ---
+    function renderSlots(data) {
+        const container = document.getElementById('slots-container');
+        container.innerHTML = '';
+
+        timeSlots.forEach(time => {
+            // Cerchiamo il valore nei dati scaricati
+            const val = data[time] || ""; 
+            const isBooked = val.trim() !== "";
+            
+            const div = document.createElement('div');
+            div.className = `time-slot-card ${isBooked ? 'slot-booked' : ''}`;
+            
+            div.innerHTML = `
+                <div class="time-badge">${time}</div>
+                <input type="text" class="parent-input" 
+                    placeholder="Disponibile" 
+                    value="${val}" 
+                    data-time="${time}"
+                    oninput="updateStatus(this)">
+            `;
+            container.appendChild(div);
+        });
+    }
+
+    function updateStatus(input) {
+        const card = input.closest('.time-slot-card');
+        if (input.value.trim() !== "") {
+            card.classList.add('slot-booked');
+        } else {
+            card.classList.remove('slot-booked');
+        }
+    }
+
+    // --- SALVATAGGIO ---
+    async function saveData() {
+        const btn = document.getElementById('btnSave');
+        const originalText = btn.innerHTML;
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Salvataggio...';
+
+        // Raccoglie i dati
+        const inputs = document.querySelectorAll('.parent-input');
+        const dataToSave = {};
+        
+        inputs.forEach(input => {
+            // Salva solo se l'orario è nella lista (sicurezza)
+            const time = input.getAttribute('data-time');
+            dataToSave[time] = input.value;
+        });
+
+        try {
+            // Invio POST a Google Script
+            await fetch(SCRIPT_URL, {
+                method: 'POST',
+                body: JSON.stringify({ data: dataToSave })
+            });
+            showToast("✅ Salvato su Google Sheet!", "success");
+        } catch (e) {
+            console.error(e);
+            showToast("❌ Errore durante il salvataggio", "danger");
+        } finally {
+            btn.disabled = false;
+            btn.innerHTML = originalText;
+        }
+    }
+
+    // --- TOAST ---
+    function showToast(msg, type) {
+        const container = document.getElementById('toast-container');
+        const color = type === 'success' ? '#198754' : '#dc3545';
+        
+        const el = document.createElement('div');
+        el.style.cssText = `background:${color}; color:white; padding:12px 20px; border-radius:12px; margin-bottom:10px; box-shadow:0 4px 15px rgba(0,0,0,0.2); font-weight:600; animation: slideIn 0.3s;`;
+        el.innerText = msg;
+        
+        container.appendChild(el);
+        setTimeout(() => {
+            el.style.transition = "0.5s";
+            el.style.opacity = '0';
+            el.style.transform = "translateX(50px)";
+            setTimeout(() => el.remove(), 500);
+        }, 3000);
+    }
+</script>
+
+<style>
+@keyframes slideIn { from { opacity:0; transform:translateY(20px); } to { opacity:1; transform:translateY(0); } }
+</style>
+
+</body>
+</html>
