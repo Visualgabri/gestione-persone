@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Prenotazioni Colloqui LIVE</title>
+    
+    <!-- Bootstrap per lo stile base -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    
+    <!-- Firebase SDK (Versione 8 per semplicità in HTML) -->
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
+
+    <style>
+        body { 
+            background-color: #f0f2f5; 
+            padding: 20px 10px; 
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; 
+        }
+
+        h2 { 
+            text-align: center; 
+            color: #2c3e50; 
+            font-weight: 800; 
+            margin-bottom: 5px; 
+        }
+
+        .subtitle {
+            text-align: center;
+            font-size: 0.9rem;
+            color: #666;
+            margin-bottom: 25px;
+        }
+        
+        /* Indicatore connessione */
+        .status-badge {
+            display: inline-block;
+            width: 10px; height: 10px;
+            background-color: #ccc;
+            border-radius: 50%;
+            margin-right: 5px;
+            transition: all 0.3s;
+        }
+        .status-online { background-color: #198754; box-shadow: 0 0 8px #198754; }
+
+        /* Card Orario */
+        .time-slot {
+            background: white;
+            border-radius: 12px;
+            padding: 8px;
+            margin-bottom: 12px;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.04);
+            display: flex;
+            align-items: center;
+            border: 2px solid transparent;
+            transition: all 0.3s ease;
+        }
+
+        /* Etichetta Orario */
+        .time-label {
+            background: #f1f3f5; 
+            color: #495057;
+            font-weight: 700; 
+            padding: 12px 0;
+            width: 80px;
+            text-align: center;
+            border-radius: 10px; 
+            margin-right: 12px; 
+            flex-shrink: 0;
+            font-size: 1.1rem;
+        }
+
+        /* Input Nome */
+        .name-input {
+            border: none; 
+            width: 100%; 
+            outline: none;
+            background: transparent; 
+            font-size: 1.05rem;
+            color: #333;
+            font-weight: 500;
+            padding: 5px 0;
+        }
+        .name-input::placeholder { color: #adb5bd; font-weight: 400; font-style: italic; }
+
+        /* Stile quando prenotato */
+        .slot-booked {
+            background-color: #f2fbf6;
+            border-color: #a3cfbb;
+        }
+        .slot-booked .time-label {
+            background-color: #198754; 
+            color: white;
+        }
+        
+        /* Animazione flash al salvataggio */
+        @keyframes highlight {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.02); border-color: #0d6efd; }
+            100% { transform: scale(1); }
+        }
+        .updated { animation: highlight 0.4s ease; }
+    </style>
+</head>
+<body>
+
+<div class="container" style="max-width: 600px;">
+    <h2>Colloqui Scuola</h2>
+    <div class="subtitle">
+        <span id="live-indicator" class="status-badge"></span> Sincronizzazione Live
+    </div>
+    
+    <div id="slots-container">
+        <div class="text-center p-5">
+            <div class="spinner-border text-primary" role="status"></div>
+            <p class="mt-3 text-muted small">Connessione al database...</p>
+        </div>
+    </div>
+</div>
+
+<script>
+    // --- 1. CONFIGURAZIONE FIREBASE ---
+    const firebaseConfig = {
+        apiKey: "AIzaSyA5t33prQLdn6nNxZ8p9ZTCHlqPciLL5tc",
+        authDomain: "colloqui-scuola.firebaseapp.com",
+        projectId: "colloqui-scuola",
+        storageBucket: "colloqui-scuola.firebasestorage.app",
+        messagingSenderId: "429901661698",
+        appId: "1:429901661698:web:a770045fb9715f9931891b",
+        // Ho aggiunto questo URL basandomi sul tuo ProjectID. 
+        // Se non va, controlla nella console di Firebase sotto Realtime Database.
+        databaseURL: "https://colloqui-scuola-default-rtdb.firebaseio.com"
+    };
+
+    // Inizializza Firebase
+    if (!firebase.apps.length) {
+        firebase.initializeApp(firebaseConfig);
+    }
+
+    const db = firebase.database();
+    const slotsRef = db.ref('prenotazioni_orari'); // Nome della tabella nel DB
+
+    const timeSlots = [
+        "16:30", "16:35", "16:40", "16:45", "16:50", "16:55",
+        "17:00", "17:05", "17:10", "17:15", "17:20", "17:25",
+        "17:30", "17:35", "17:40", "17:45", "17:50"
+    ];
+
+    // --- 2. GENERAZIONE INTERFACCIA ---
+    const container = document.getElementById('slots-container');
+    
+    function initUI() {
+        container.innerHTML = '';
+        timeSlots.forEach(time => {
+            // Creiamo un ID sicuro per l'HTML (senza due punti)
+            const safeId = `slot-${time.replace(':', '-')}`;
+            
+            const div = document.createElement('div');
+            div.className = 'time-slot';
+            div.id = safeId; 
+            
+            div.innerHTML = `
+                <div class="time-label">${time}</div>
+                <input type="text" class="name-input" 
+                    placeholder="Libero..." 
+                    data-time="${time}"
+                    onchange="saveToFirebase(this)"> 
+            `;
+            container.appendChild(div);
+        });
+    }
+
+    // --- 3. LOGICA DI SINCRONIZZAZIONE (ASCOLTO) ---
+    function startListening() {
+        slotsRef.on('value', (snapshot) => {
+            const data = snapshot.val() || {};
+            
+            // Accendi pallino verde
+            document.getElementById('live-indicator').classList.add('status-online');
+
+            timeSlots.forEach(time => {
+                const safeId = `slot-${time.replace(':', '-')}`;
+                const el = document.getElementById(safeId);
+                const input = el.querySelector('input');
+                const serverVal = data[time] || "";
+
+                // Aggiorna il campo SOLO se è diverso e l'utente NON ci sta scrivendo dentro ora
+                if (input.value !== serverVal && document.activeElement !== input) {
+                    input.value = serverVal;
+                    // Piccolo effetto flash per far capire che è cambiato
+                    el.classList.add('updated');
+                    setTimeout(() => el.classList.remove('updated'), 500);
+                }
+
+                // Gestione colore Verde/Bianco
+                if (serverVal.trim() !== "") {
+                    el.classList.add('slot-booked');
+                } else {
+                    el.classList.remove('slot-booked');
+                }
+            });
+        }, (error) => {
+            console.error("Errore lettura:", error);
+            alert("Errore di connessione. Controlla le regole del database.");
+        });
+    }
+
+    // --- 4. SALVATAGGIO ---
+    // Si attiva quando premi Invio o esci dalla casella (onchange)
+    window.saveToFirebase = function(input) {
+        const time = input.getAttribute('data-time');
+        const value = input.value;
+
+        // Prepara aggiornamento parziale
+        let updateData = {};
+        updateData[time] = value;
+
+        // Invia a Firebase
+        slotsRef.update(updateData)
+            .then(() => {
+                console.log("Salvato: " + time);
+            })
+            .catch((error) => {
+                alert("Errore salvataggio: " + error.message);
+            });
+    };
+
+    // Avvio
+    initUI();
+    startListening();
+
+</script>
+</body>
+</html>
